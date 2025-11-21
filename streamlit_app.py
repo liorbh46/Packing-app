@@ -4,6 +4,19 @@ import google.generativeai as genai
 # --- הגדרות עמוד ---
 st.set_page_config(page_title="PackBot AI", page_icon="🧳", layout="centered")
 
+# --- הטמעת המפתח שלך ---
+# שים לב: בגלל שפרסמת את המפתח כאן, מומלץ בעתיד למחוק אותו וליצור חדש בגוגל.
+# בינתיים זה יעבוד מעולה.
+API_KEY = "AIzaSyC37M65UwKU3RuKXMb9W6TFCq7IB8yrGS8"
+
+# --- הגדרת המודל ---
+try:
+    genai.configure(api_key=API_KEY)
+    # שימוש במודל Flash המהיר והעדכני
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except Exception as e:
+    st.error(f"שגיאה בהגדרת המפתח: {e}")
+
 # --- עיצוב ---
 st.markdown("""
 <style>
@@ -16,19 +29,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧳 PackBot AI")
-st.caption("מופעל ע\"י Google Gemini 1.5 Flash")
-
-# ---------------------------------------------------------
-# 👇 כאן מדביקים את המפתח! (בתוך הגרשיים)
-# ---------------------------------------------------------
-api_key = "AIzaSyC37M65UwKU3RuKXMb9W6TFCq7IB8yrGS8"
-# ---------------------------------------------------------
-
-# בדיקה שיש מפתח
-if not api_key or "כאן_תדביק" in api_key:
-    st.warning("⚠️ שים לב: לא הזנת את ה-API Key בקוד עדיין.")
-    # אופציה להזין ידנית אם לא שמרת בקוד
-    api_key = st.text_input("או הדבק כאן ידנית:", type="password")
+st.caption("מופעל ע\"י Google Gemini")
 
 # --- ניהול זיכרון השיחה ---
 if "messages" not in st.session_state:
@@ -37,17 +38,26 @@ if "messages" not in st.session_state:
     ]
 
 # --- פונקציה לפניה לגוגל ---
-def ask_gemini(prompt, key):
+def ask_gemini(prompt):
     try:
-        genai.configure(api_key=key)
-        # --- התיקון: שינוי שם המודל לגרסה החדשה והמהירה ---
-        model = genai.GenerativeModel('gemini-1.5-flash') 
-        
-        chat = model.start_chat(history=st.session_state.messages[:-1])
+        # יצירת היסטוריה
+        history = []
+        for msg in st.session_state.messages[:-1]:
+            role = "user" if msg["role"] == "user" else "model"
+            history.append({"role": role, "parts": msg["parts"]})
+            
+        chat = model.start_chat(history=history)
         response = chat.send_message(prompt)
         return response.text
     except Exception as e:
-        return f"שגיאה: {str(e)}. ודא שהמפתח תקין."
+        # אם יש שגיאה, ננסה מודל גיבוי ישן יותר
+        try:
+            fallback_model = genai.GenerativeModel('gemini-pro')
+            chat = fallback_model.start_chat(history=history)
+            response = chat.send_message(prompt)
+            return response.text
+        except:
+            return f"שגיאה: {str(e)}. ודא שהמפתח תקין ושקובץ requirements.txt מעודכן."
 
 # --- הצגת השיחה ---
 for msg in st.session_state.messages:
@@ -56,17 +66,13 @@ for msg in st.session_state.messages:
 
 # --- טיפול בקלט ---
 if prompt := st.chat_input("כתוב כאן..."):
-    if not api_key or "כאן_תדביק" in api_key:
-        st.error("חסר מפתח API")
-        st.stop()
-
     # הצגת הודעת המשתמש
     st.chat_message("user").write(prompt)
     st.session_state.messages.append({"role": "user", "parts": [prompt]})
 
     # קבלת תשובה
     with st.spinner("חושב..."):
-        ai_response = ask_gemini(prompt, api_key)
+        ai_response = ask_gemini(prompt)
 
     # הצגת התשובה
     st.chat_message("assistant").write(ai_response)
