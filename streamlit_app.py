@@ -1,95 +1,168 @@
 import streamlit as st
 import pandas as pd
+import time
 
-# --- כותרת והגדרות עיצוב ---
-st.set_page_config(page_title="PackSmart", page_icon="🧳")
+# --- הגדרות עמוד ועיצוב ---
+st.set_page_config(page_title="PackSmart Pro", page_icon="✈️", layout="wide")
 
-st.title("🧳 PackSmart - הצ'ק ליסט החכם שלך")
-st.markdown("הזן את פרטי הנסיעה וקבל רשימה מותאמת אישית בשניות.")
-
-# --- אזור הקלט (סרגל צד) ---
-st.sidebar.header("פרטי הנסיעה")
-
-days = st.sidebar.number_input("כמה ימים תימשך הנסיעה?", min_value=1, value=5)
-weather = st.sidebar.selectbox("מה צפוי להיות מזג האוויר?", ["חם / קיצי", "קר / חורפי", "נעים / מעורב", "גשום מאוד"])
-trip_type = st.sidebar.selectbox("סוג הנסיעה", ["חופשה עירונית", "בטן-גב (ים)", "נסיעת עסקים", "טיול תרמילאים/שטח"])
-accommodation = st.sidebar.radio("איפה ישנים?", ["מלון (מספקים הכל)", "דירה/Airbnb", "קמפינג"])
-is_international = st.sidebar.checkbox("האם זו טיסה לחו\"ל?", value=True)
-do_laundry = st.sidebar.checkbox("האם תעשה כביסה במהלך הטיול?", value=False)
-
-# --- הלוגיקה ליצירת הרשימה ---
-def generate_packing_list(days, weather, trip_type, accommodation, is_international, do_laundry):
-    
-    packing_list = {
-        "ביגוד": [],
-        "רחצה והיגיינה": [],
-        "אלקטרוניקה": [],
-        "מסמכים וכסף": [],
-        "שונות": []
+# CSS מותאם אישית לשיפור הנראות
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f8f9fa;
     }
+    h1 {
+        color: #2c3e50;
+        text-align: center;
+    }
+    .stProgress > div > div > div > div {
+        background-color: #4CAF50;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    # --- חישוב כמויות ---
-    # אם עושים כביסה, אורזים ל-7 ימים מקסימום, אחרת לכל התקופה + 1 ספייר
-    clothes_count = min(days + 1, 7) if do_laundry else days + 1
+# --- אתחול Session State (כדי לזכור מה סומן) ---
+if 'checked_items' not in st.session_state:
+    st.session_state.checked_items = set()
+
+def toggle_item(item):
+    if item in st.session_state.checked_items:
+        st.session_state.checked_items.remove(item)
+    else:
+        st.session_state.checked_items.add(item)
+
+# --- כותרת ---
+st.title("✈️ PackSmart Pro")
+st.markdown("<h4 style='text-align: center; color: #7f8c8d;'>האריזה שלך מעולם לא הייתה קלה יותר</h4>", unsafe_allow_html=True)
+st.markdown("---")
+
+# --- סרגל צד (הגדרות) ---
+with st.sidebar:
+    st.header("⚙️ הגדרות נסיעה")
     
-    # --- ביגוד בסיסי ---
-    packing_list["ביגוד"].append(f"{clothes_count} תחתונים")
-    packing_list["ביגוד"].append(f"{clothes_count} זוגות גרביים")
-    packing_list["ביגוד"].append(f"{int(days/2) + 1} מכנסיים")
-    packing_list["ביגוד"].append(f"{clothes_count} חולצות")
-    packing_list["ביגוד"].append("פיג'מה / בגדי שינה")
-
-    # --- התאמות מזג אוויר ---
-    if "קר" in weather or "גשום" in weather:
-        packing_list["ביגוד"].extend(["מעיל חם", "צעיף וכפפות", "גופיות תרמיות"])
-        packing_list["שונות"].append("מטריה")
-    elif "חם" in weather:
-        packing_list["ביגוד"].extend(["כובע", "משקפי שמש"])
-        packing_list["שונות"].append("קרם הגנה")
+    destination = st.text_input("לאן טסים?", "לונדון")
+    days = st.number_input("מספר ימים", min_value=2, value=5)
     
-    # --- התאמות סוג טיול ---
-    if trip_type == "בטן-גב (ים)":
-        packing_list["ביגוד"].extend(["2 בגדי ים", "כפכפים"])
-        packing_list["שונות"].append("מגבת חוף")
-    elif trip_type == "נסיעת עסקים":
-        packing_list["ביגוד"].extend(["חליפה/לבוש רשמי", "נעליים אלגנטיות", "חגורה"])
-        packing_list["אלקטרוניקה"].append("לפטופ + מטען")
-    elif trip_type == "טיול תרמילאים/שטח":
-        packing_list["ביגוד"].append("נעלי הליכה נוחות")
-        packing_list["שונות"].extend(["תיק עזרה ראשונה", "פנס", "אולר/לדרמן"])
-
-    # --- התאמות לינה ---
-    if accommodation != "מלון (מספקים הכל)":
-        packing_list["רחצה והיגיינה"].extend(["שמפו וסבון גוף", "מגבת רחצה"])
+    st.subheader("👥 מי נוסע?")
+    adults = st.number_input("מבוגרים", 1, 5, 2)
+    children = st.number_input("ילדים (2-12)", 0, 5, 0)
+    infants = st.number_input("תינוקות (0-2)", 0, 2, 0)
     
-    packing_list["רחצה והיגיינה"].extend(["מברשת ומשחת שיניים", "דאודורנט", "מסרק/מברשת שיער", "תיק רחצה"])
-
-    # --- אלקטרוניקה ---
-    packing_list["אלקטרוניקה"].extend(["מטען לטלפון", "אוזניות"])
-    if is_international:
-        packing_list["אלקטרוניקה"].append("מתאם לשקע חשמל (Universal Adapter)")
-        packing_list["אלקטרוניקה"].append("Power Bank (סוללה ניידת)")
-
-    # --- מסמכים ---
-    packing_list["מסמכים וכסף"].extend(["ארנק + כרטיסי אשראי", "תעודה מזהה"])
-    if is_international:
-        packing_list["מסמכים וכסף"].extend(["דרכון בתוקף", "ביטוח נסיעות (מודפס/בטלפון)", "מטבע מקומי"])
-
-    return packing_list
-
-# --- יצירת הרשימה והצגה ---
-if st.button("צור לי צ'ק ליסט לאריזה! 🚀"):
-    final_list = generate_packing_list(days, weather, trip_type, accommodation, is_international, do_laundry)
+    st.subheader("⛅ תנאים")
+    weather = st.select_slider("מזג אוויר צפוי", options=["לוהט", "נעים", "קריר", "קפוא/שלג"])
+    trip_type = st.selectbox("סוג הטיול", ["עירוני/שופינג", "בטן-גב", "עסקים", "טרק/שטח"])
     
-    st.success(f"הרשימה שלך מוכנה! נסיעה ל-{days} ימים.")
-    
-    # תצוגה ויזואלית של הרשימה
-    for category, items in final_list.items():
-        if items: # רק אם יש פריטים בקטגוריה
-            st.subheader(category)
-            for item in items:
-                st.checkbox(item, key=f"{category}_{item}")
-            st.markdown("---")
+    is_intl = st.toggle("טיסה לחו\"ל?", value=True)
+    laundry = st.toggle("מתכננים כביסה?", value=False)
 
-# --- הערה תחתונה ---
-st.info("טיפ: הרשימה נשמרת זמנית עד לרענון העמוד. צלם מסך לפני שאתה יוצא!")
+    if st.button("🔄 רענן רשימה", use_container_width=True):
+        st.session_state.checked_items = set() # איפוס סימונים
+        st.rerun()
+
+# --- לוגיקה חכמה (Backend) ---
+def get_items(days, weather, trip_type, adults, children, infants, is_intl, laundry):
+    items = {
+        "👖 ביגוד": [],
+        "🪥 היגיינה": [],
+        "🔌 גאדג'טים": [],
+        "📂 מסמכים": [],
+        "🧸 ילדים ותינוקות": [],
+        "💊 בריאות ושונות": []
+    }
+    
+    # חישוב כמויות
+    factor = min(days + 1, 7) if laundry else days + 1
+    total_people = adults + children
+    
+    # ביגוד
+    items["👖 ביגוד"].append(f"{factor * total_people} תחתונים וגרביים")
+    items["👖 ביגוד"].append(f"{factor * total_people} חולצות (קצר/ארוך)")
+    items["👖 ביגוד"].append(f"{int(days/2)+1} זוגות מכנסיים לאדם")
+    items["👖 ביגוד"].append("פיג'מות לכולם")
+    
+    if weather in ["קריר", "קפוא/שלג"]:
+        items["👖 ביגוד"].extend(["מעילים", "צעיפים וכפפות", "גופיות תרמיות"])
+    elif weather == "לוהט":
+        items["👖 ביגוד"].extend(["כובעים", "משקפי שמש"])
+        
+    if trip_type == "בטן-גב":
+        items["👖 ביגוד"].extend(["בגדי ים", "כפכפים", "בגדי חוף"])
+    elif trip_type == "עסקים":
+        items["👖 ביגוד"].extend(["חליפה/לבוש רשמי", "נעליים אלגנטיות"])
+
+    # היגיינה
+    items["🪥 היגיינה"].extend(["מברשות ומשחת שיניים", "דאודורנט", "שמפו וסבון", "קרם פנים/גוף", "מסרק/מברשת שיער"])
+    if trip_type == "בטן-גב" or weather == "לוהט":
+        items["🪥 היגיינה"].append("קרם הגנה חזק")
+
+    # אלקטרוניקה
+    items["🔌 גאדג'טים"].extend(["מטענים לטלפונים", "אוזניות"])
+    if is_intl:
+        items["🔌 גאדג'טים"].append("מתאם חשמל אוניברסלי")
+        items["🔌 גאדג'טים"].append("סוללה ניידת (Power Bank)")
+    
+    # ילדים ותינוקות
+    if children > 0:
+        items["🧸 ילדים ותינוקות"].extend(["משחקים לטיסה/נסיעה", "נשנושים לדרך", "בגדים להחלפה בתיק גב"])
+    if infants > 0:
+        items["🧸 ילדים ותינוקות"].extend([
+            f"{days * 6} חיתולים", "מגבונים לחים (חבילה גדולה)", "משחה לתפרחת", 
+            "בקבוקים + תמ\"ל", "מוצצים (כולל ספייר)", "עגלה/מנשא", "שקיות לחיתולים מלוכלכים"
+        ])
+
+    # מסמכים
+    items["📂 מסמכים"].extend(["ארנק + כרטיסי אשראי", "תעודות זהות"])
+    if is_intl:
+        items["📂 מסמכים"].extend(["דרכונים בתוקף", "ביטוח נסיעות", "כרטיסי טיסה (בטלפון)"])
+
+    # שונות
+    items["💊 בריאות ושונות"].extend(["תיק עזרה ראשונה בסיסי", "משככי כאבים", "שקיות לכביסה מלוכלכת"])
+    
+    # ניקוי קטגוריות ריקות
+    return {k: v for k, v in items.items() if v}
+
+# יצירת הרשימה
+final_list = get_items(days, weather, trip_type, adults, children, infants, is_intl, laundry)
+
+# חישוב התקדמות
+all_items_count = sum(len(v) for v in final_list.values())
+checked_count = len(st.session_state.checked_items)
+progress = checked_count / all_items_count if all_items_count > 0 else 0
+
+# --- תצוגת ההתקדמות ---
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.progress(progress, text=f"התקדמות אריזה: {int(progress*100)}%")
+with col2:
+    if progress == 1.0:
+        st.balloons()
+        st.success("סיימת לארוז! 🎒")
+
+# --- תצוגת הטאבים ---
+tabs = st.tabs(final_list.keys())
+
+for i, (category, items) in enumerate(final_list.items()):
+    with tabs[i]:
+        st.subheader(f"{category}")
+        for item in items:
+            # מפתח ייחודי לכל צ'קבוקס כדי למנוע התנגשויות
+            is_checked = item in st.session_state.checked_items
+            if st.checkbox(item, value=is_checked, key=item):
+                if not is_checked:
+                    toggle_item(item)
+                    st.rerun() # רענון כדי לעדכן את סרגל ההתקדמות
+            elif is_checked:
+                toggle_item(item)
+                st.rerun()
+
+# --- אזור ייצוא ---
+st.markdown("---")
+text_output = f"רשימת אריזה ל{destination} ({days} ימים):\n\n"
+for cat, items in final_list.items():
+    text_output += f"{cat}:\n"
+    for item in items:
+        mark = "V" if item in st.session_state.checked_items else "O"
+        text_output += f"[{mark}] {item}\n"
+    text_output += "\n"
+
+st.download_button("📥 הורד רשימה כקובץ", text_output, file_name="my_packing_list.txt")
