@@ -1,5 +1,6 @@
 import streamlit as st
-import google.generativeai as genai
+import os
+from openai import OpenAI
 
 # --- הגדרות עמוד ---
 st.set_page_config(page_title="PackBot AI", page_icon="🧳", layout="centered")
@@ -15,57 +16,77 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧳 PackBot AI")
-st.caption("מופעל ע\"י Google Gemini Pro")
+st.caption("מופעל ע\"י OpenAI GPT")
 
-# ---------------------------------------------------------
-# המפתח שלך מוטמע כאן בפנים
-# ---------------------------------------------------------
-my_secret_key = "AIzaSyC37M65UwKU3RuKXMb9W6TFCq7IB8yrGS8"
+# --- קבלת מפתח API ---
+# אפשר דרך משתנה סביבה (OPENAI_API_KEY) או דרך ה-UI
+api_key_env = os.getenv("OPENAI_API_KEY", "")
 
-# --- הגדרת המודל (הגרסה היציבה ביותר) ---
-try:
-    genai.configure(api_key=my_secret_key)
-    # שינוי ל-gemini-pro שעובד תמיד
-    model = genai.GenerativeModel('gemini-pro')
-except Exception as e:
-    st.error(f"שגיאה בהתחברות: {e}")
+with st.sidebar:
+    st.markdown("### 🔑 OpenAI API Key")
+    st.caption("לא לשתף, לא להעלות ל-GitHub. מומלץ לשים כ־secret ב-Streamlit או כמשתנה סביבה.")
+    api_key = st.text_input("הדבק כאן את ה-API Key שלך", value=api_key_env, type="password")
+
+if not api_key:
+    st.warning("יש להזין OpenAI API Key כדי להשתמש בבוט.")
+    st.stop()
+
+# יצירת לקוח OpenAI
+client = OpenAI(api_key=api_key)
 
 # --- ניהול זיכרון השיחה ---
+# נשמור פורמט פשוט: role = "user"/"assistant", content = טקסט
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "parts": ["היי! אני מומחה האריזה שלך. לאן טסים ומתי?"]}
+        {"role": "assistant", "content": "היי! אני מומחה האריזה שלך. לאן טסים ומתי?"}
     ]
 
-# --- פונקציה לפניה לגוגל ---
-def ask_gemini(prompt):
-    try:
-        # בניית היסטוריה ללא ההודעה האחרונה
-        history = []
-        for msg in st.session_state.messages[:-1]:
-            role = "user" if msg["role"] == "user" else "model"
-            history.append({"role": role, "parts": msg["parts"]})
-            
-        chat = model.start_chat(history=history)
-        response = chat.send_message(prompt)
-        return response.text
-    except Exception as e:
-        return f"שגיאה: {str(e)}"
+# --- פונקציה לפניה ל-OpenAI ---
+def ask_openai():
+    """
+    בונה את כל ההיסטוריה בפורמט messages של OpenAI ושולח למודל.
+    """
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "אתה PackBot, מומחה אריזה חכם. "
+                "תנהל שיחה נעימה וקצרה בעברית, תשאל שאלות על הנסיעה, "
+                "ובסוף תעזור למשתמש לבנות רשימת אריזה מסודרת, מותאמת ליעד, משך, מזג אוויר ומי נוסע."
+            ),
+        }
+    ]
 
-# --- הצגת השיחה ---
+    for msg in st.session_state.messages:
+        messages.append(
+            {
+                "role": msg["role"],       # 'user' או 'assistant'
+                "content": msg["content"], # הטקסט עצמו
+            }
+        )
+
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",   # אפשר להחליף לדגם אחר אם יש לך
+        messages=messages,
+        temperature=0.6,
+    )
+
+    return completion.choices[0].message.content
+
+# --- הצגת השיחה הקודמת ---
 for msg in st.session_state.messages:
-    role = "assistant" if msg["role"] == "model" else "user"
-    st.chat_message(role).write(msg["parts"][0])
+    st.chat_message(msg["role"]).write(msg["content"])
 
-# --- טיפול בקלט ---
+# --- קלט חדש מהמשתמש ---
 if prompt := st.chat_input("כתוב כאן..."):
-    # הצגת הודעת המשתמש
+    # 1. להציג ולשמור את הודעת המשתמש
     st.chat_message("user").write(prompt)
-    st.session_state.messages.append({"role": "user", "parts": [prompt]})
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # קבלת תשובה
+    # 2. לשלוח ל-OpenAI
     with st.spinner("אורז מחשבות..."):
-        ai_response = ask_gemini(prompt)
+        ai_response = ask_openai()
 
-    # הצגת התשובה
+    # 3. להציג ולשמור את תגובת המודל
     st.chat_message("assistant").write(ai_response)
-    st.session_state.messages.append({"role": "model", "parts": [ai_response]})
+    st.session_state.messages.append({"role": "assistant", "content": ai_response})
