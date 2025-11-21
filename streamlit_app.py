@@ -16,15 +16,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧳 PackBot AI")
-st.caption("מופעל ע\"י Google Gemini - חכם, מהיר וחינמי")
+st.caption("מופעל ע\"י Google Gemini 1.5 Flash")
 
-# --- סרגל צד למפתח ---
-with st.sidebar:
-    st.header("הגדרות")
-    api_key = "AIzaSyC37M65UwKU3RuKXMb9W6TFCq7IB8yrGS8"
-    st.markdown("[קבל מפתח בחינם כאן](https://aistudio.google.com/app/apikey)")
-    if not api_key:
-        st.warning("חובה להכניס מפתח כדי להתחיל.")
+# ---------------------------------------------------------
+# 👇 כאן מדביקים את המפתח! (בתוך הגרשיים)
+# ---------------------------------------------------------
+api_key = "AIzaSyC37M65UwKU3RuKXMb9W6TFCq7IB8yrGS8"
+# ---------------------------------------------------------
+
+# בדיקה שיש מפתח
+if not api_key or "כאן_תדביק" in api_key:
+    st.warning("⚠️ שים לב: לא הזנת את ה-API Key בקוד עדיין.")
+    # אופציה להזין ידנית אם לא שמרת בקוד
+    api_key = st.text_input("או הדבק כאן ידנית:", type="password")
 
 # --- ניהול זיכרון השיחה ---
 if "messages" not in st.session_state:
@@ -36,11 +40,10 @@ if "messages" not in st.session_state:
 def ask_gemini(prompt, key):
     try:
         genai.configure(api_key=key)
-        model = genai.GenerativeModel('gemini-pro')
+        # --- התיקון: שינוי שם המודל לגרסה החדשה והמהירה ---
+        model = genai.GenerativeModel('gemini-1.5-flash') 
         
-        # יצירת היסטוריה בפורמט של גוגל
-        chat = model.start_chat(history=st.session_state.messages[:-1]) # שולחים את ההיסטוריה ללא ההודעה האחרונה כי נוסיף אותה ידנית
-        
+        chat = model.start_chat(history=st.session_state.messages[:-1])
         response = chat.send_message(prompt)
         return response.text
     except Exception as e:
@@ -53,8 +56,8 @@ for msg in st.session_state.messages:
 
 # --- טיפול בקלט ---
 if prompt := st.chat_input("כתוב כאן..."):
-    if not api_key:
-        st.error("נא להזין API Key בסרגל הצד")
+    if not api_key or "כאן_תדביק" in api_key:
+        st.error("חסר מפתח API")
         st.stop()
 
     # הצגת הודעת המשתמש
@@ -68,4 +71,3 @@ if prompt := st.chat_input("כתוב כאן..."):
     # הצגת התשובה
     st.chat_message("assistant").write(ai_response)
     st.session_state.messages.append({"role": "model", "parts": [ai_response]})
-
