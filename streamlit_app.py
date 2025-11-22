@@ -1,4 +1,5 @@
 import os
+import json
 import streamlit as st
 from groq import Groq
 
@@ -21,7 +22,6 @@ st.markdown("""
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
-    /* מרכז את התוכן במסכים צרים (מובייל) */
     [data-testid="stAppViewContainer"] > .main {
         max-width: 480px;
         margin: 0 auto;
@@ -31,10 +31,6 @@ st.markdown("""
     .stChatMessage {
         direction: rtl;
         text-align: right;
-    }
-
-    .stChatInput {
-        direction: rtl;
     }
 
     div[data-testid="stMarkdownContainer"] {
@@ -54,19 +50,28 @@ st.markdown("""
         margin-bottom: 0.8rem;
     }
 
-    /* הסתרה מוחלטת של הסיידבר וכפתור התפריט */
     [data-testid="stSidebar"] {
         display: none !important;
     }
     [data-testid="collapsedControl"] {
         display: none !important;
     }
+
+    .step-title {
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+    }
+    .step-subtitle {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-bottom: 0.8rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("PackBot AI 🧳")
 st.markdown(
-    '<div class="sub-caption">צ׳אט חכם לבניית רשימת ציוד מותאמת אישית</div>',
+    '<div class="sub-caption">אשף חכם לבניית רשימת ציוד מותאמת אישית</div>',
     unsafe_allow_html=True
 )
 
@@ -87,97 +92,270 @@ if not api_key:
 client = Groq(api_key=api_key)
 
 # =========================
-#   ניהול זיכרון השיחה
+#   אתחול state
 # =========================
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": "היי, אני PackBot – מומחה האריזה שלך. ספר לי בקצרה לאן אתה נוסע ומתי?"
-        }
-    ]
+DEFAULT_DATA = {
+    "destination": "",
+    "trip_name": "",
+    "days": 3,
+    "travellers": "",
+    "kids": "",
+    "weather": "",
+    "trip_style": [],
+    "luggage": "",
+    "laundry": False,
+    "special_activities": "",
+    "notes": ""
+}
+
+if "step" not in st.session_state:
+    st.session_state.step = 0
+
+if "form_data" not in st.session_state:
+    st.session_state.form_data = DEFAULT_DATA.copy()
+
+if "packing_text" not in st.session_state:
+    st.session_state.packing_text = ""
+
+
+def reset_all():
+    st.session_state.step = 0
+    st.session_state.form_data = DEFAULT_DATA.copy()
+    st.session_state.packing_text = ""
+
 
 # =========================
-#   פונקציה ששואלת את Groq
+#   פונקציה שמדברת עם Groq
 # =========================
-def ask_groq():
-    """
-    שלב 1 – ראיון: שאלה אחת בכל פעם.
-    שלב 2 – רשימת ציוד בפורמט טקסט להדבקה בפתקים.
-    """
-
+def generate_packing_list(data: dict) -> str:
     system_prompt = (
-        "אתה PackBot, מראיין אריזה חכם.\n"
-        "המטרה שלך: לנהל ראיון קצר אחד-על-אחד על הנסיעה של המשתמש, "
-        "ולבסוף לבנות לו רשימת ציוד בפורמט טקסט פשוט שאפשר להדביק ישירות בפתקים באייפון.\n\n"
-
-        "שלב 1 – ראיון:\n"
-        "• אתה שואל תמיד שאלה אחת בלבד בכל הודעה שלך.\n"
-        "• אל תשאל שתי שאלות באותה הודעה ואל תשתמש ביותר מסימן שאלה אחד.\n"
-        "• כל תשובה שלך בשלב הראיון צריכה להיות קצרה: משפט אחד שמראה שהבנת + שאלה אחת ברורה.\n"
-        "• תתמקד בשאלות על: יעד הנסיעה, תאריכים, משך, מי נוסע, סוג החופשה, מזג האוויר המשוער, "
-        "סוג המזוודה/תיק, האם מתוכננת כביסה, ופעילויות מיוחדות.\n"
-        "• בשלב זה אל תיתן עדיין רשימות ציוד – רק שאלות, הבהרות וקצת הכוונה.\n\n"
-
-        "שלב 2 – רשימת ציוד להדבקה בפתקים:\n"
-        "כאשר יש לך מספיק מידע כדי לבנות רשימת ציוד טובה, אתה מפסיק לשאול שאלות "
-        "ונותן למשתמש אך ורק טקסט בפורמט הבא (חשוב להקפיד):\n\n"
+        "אתה PackBot, מומחה אריזה. "
+        "אתה מקבל נתוני נסיעה מובנים בפורמט JSON, ועל בסיסם אתה יוצר רשימת ציוד מדויקת.\n\n"
+        "פורמט הפלט חשוב מאוד:\n"
         "1. שורה ראשונה: כותרת, למשל 'רשימת ציוד נסיעה ל<יעד>' או 'רשימת ציוד שהייה'.\n"
         "2. שורה שנייה: ריקה.\n"
-        "3. אחרי זה: כל פריט בשורה נפרדת, בלי מספרים, בלי נקודות ובלי מקפים.\n\n"
-        "דוגמה רק לפורמט (לא לתוכן בפועל):\n"
-        "רשימת ציוד שהייה\n"
-        "\n"
-        "מזוודה גדולה\n"
-        "מגבת\n"
-        "קרם הגנה\n"
-        "ג׳ינסים\n"
-        "בגדים ללילה\n"
-        "תחתונים\n"
-        "גרביים\n"
-        "משקפי שמש\n"
-        "ארנק\n"
-        "דרכון\n\n"
-        "הנחיות קריטיות לשלב הרשימה:\n"
-        "• אל תכתוב שום טקסט לפני או אחרי הרשימה – רק הכותרת, שורה ריקה והפריטים.\n"
-        "• אל תוסיף אמוג׳י, הסברים, סוגריים או הערות.\n"
-        "• רשום רק פריטים רלוונטיים לנסיעה הספציפית של המשתמש.\n"
-        "• אחרי שנתת את הרשימה הסופית, אל תשאל עוד שאלות מיוזמתך. "
-        "אם המשתמש יבקש שינוי/הוספה – תענה, אבל שמור על אותו פורמט טקסט פשוט.\n"
-        "• תמיד דבר בעברית.\n"
+        "3. משם והלאה: כל פריט בשורה נפרדת, בלי מספרים, בלי מקפים, בלי נקודות.\n"
+        "4. בלי טקסט הסבר לפני או אחרי, בלי אמוג׳י, בלי סוגריים.\n"
+        "5. הרשימה צריכה להיות תמציתית אבל מעשית, מותאמת לנתוני הנסיעה.\n"
+        "6. כתוב הכל בעברית.\n"
     )
 
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(st.session_state.messages)
+    user_prompt = (
+        "להלן פרטי הנסיעה בפורמט JSON. "
+        "על בסיסם צור רשימת ציוד בפורמט שצוין:\n\n"
+        + json.dumps(data, ensure_ascii=False, indent=2)
+    )
 
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages,
-            temperature=0.6,
+    completion = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.4,
+    )
+
+    return completion.choices[0].message.content.strip()
+
+
+# =========================
+#   UI – אשף שלבים
+# =========================
+data = st.session_state.form_data
+step = st.session_state.step
+
+st.progress((step) / 6.0 if step <= 6 else 1.0)
+
+# ----- שלב 0: יעד ושם נסיעה -----
+if step == 0:
+    st.markdown('<div class="step-title">1. היעד והכותרת</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">נתחיל בלעשות סדר: לאן הנסיעה ואיך תרצה לקרוא לה ברשימה?</div>',
+        unsafe_allow_html=True
+    )
+
+    data["destination"] = st.text_input("לאן הנסיעה?", value=data["destination"], placeholder="לונדון, אילת, ארה״ב...")
+
+    data["trip_name"] = st.text_input(
+        "כותרת לרשימה (אופציונלי)",
+        value=data["trip_name"],
+        placeholder="רשימת ציוד שהייה, רשימת ציוד לטיסה לניו-יורק..."
+    )
+
+    if st.button("המשך ➜", use_container_width=True, disabled=(data["destination"].strip() == "")):
+        st.session_state.step = 1
+
+# ----- שלב 1: משך הנסיעה -----
+elif step == 1:
+    st.markdown('<div class="step-title">2. כמה זמן אתם נוסעים?</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">המשך השהייה משפיע על כמות הבגדים והציוד.</div>',
+        unsafe_allow_html=True
+    )
+
+    data["days"] = st.number_input("מספר לילות מחוץ לבית", min_value=1, max_value=60, value=int(data["days"] or 3))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬅ חזור", use_container_width=True):
+            st.session_state.step = 0
+    with col2:
+        if st.button("המשך ➜", use_container_width=True):
+            st.session_state.step = 2
+
+# ----- שלב 2: מי נוסע -----
+elif step == 2:
+    st.markdown('<div class="step-title">3. מי נוסע?</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">כך נדע להתאים כמויות וציוד מיוחד.</div>',
+        unsafe_allow_html=True
+    )
+
+    data["travellers"] = st.radio(
+        "בחר אפשרות אחת:",
+        options=["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"],
+        index=["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"].index(data["travellers"])
+        if data["travellers"] in ["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"] else 0,
+    )
+
+    if data["travellers"] in ["זוג עם ילדים", "משפחה / קבוצה"]:
+        data["kids"] = st.radio(
+            "ילדים:",
+            options=["בלי ילדים", "עם ילדים קטנים", "עם ילדים גדולים"],
+            index=["בלי ילדים", "עם ילדים קטנים", "עם ילדים גדולים"].index(data["kids"])
+            if data["kids"] in ["בלי ילדים", "עם ילדים קטנים", "עם ילדים גדולים"] else 1,
         )
-        return completion.choices[0].message.content
+    else:
+        data["kids"] = "בלי ילדים"
 
-    except Exception as e:
-        return f"שגיאה בשיחה עם Groq: {str(e)}"
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬅ חזור", use_container_width=True):
+            st.session_state.step = 1
+    with col2:
+        if st.button("המשך ➜", use_container_width=True):
+            st.session_state.step = 3
 
-# =========================
-#   הצגת היסטוריית השיחה
-# =========================
-for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
+# ----- שלב 3: מזג אוויר -----
+elif step == 3:
+    st.markdown('<div class="step-title">4. מזג האוויר המשוער</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">הערכה גסה מספיקה – רק כדי להבין איזה ביגוד צריך.</div>',
+        unsafe_allow_html=True
+    )
 
-# =========================
-#   קלט מהמשתמש
-# =========================
-user_input = st.chat_input("כתוב כאן את התשובה / השאלה הבאה שלך...")
+    options = ["חם מאוד", "נעים", "קריר", "קר מאוד / שלג"]
+    current_index = options.index(data["weather"]) if data["weather"] in options else 1
 
-if user_input:
-    st.chat_message("user").write(user_input)
-    st.session_state.messages.append({"role": "user", "content": user_input})
+    data["weather"] = st.radio(
+        "איך כנראה יהיה שם?",
+        options=options,
+        index=current_index
+    )
 
-    with st.spinner("אורז מחשבות..."):
-        ai_response = ask_groq()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬅ חזור", use_container_width=True):
+            st.session_state.step = 2
+    with col2:
+        if st.button("המשך ➜", use_container_width=True):
+            st.session_state.step = 4
 
-    st.chat_message("assistant").write(ai_response)
-    st.session_state.messages.append({"role": "assistant", "content": ai_response})
+# ----- שלב 4: אופי הטיול -----
+elif step == 4:
+    st.markdown('<div class="step-title">5. סוג החופשה</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">אפשר לבחור יותר מאפשרות אחת.</div>',
+        unsafe_allow_html=True
+    )
+
+    styles = [
+        "עיר / שופינג",
+        "בטן-גב / ים / בריכה",
+        "טרק / טבע",
+        "נסיעת עבודה",
+        "מסיבה / אירוע מיוחד"
+    ]
+
+    data["trip_style"] = st.multiselect(
+        "מה הכי מתאים?",
+        options=styles,
+        default=data["trip_style"] or []
+    )
+
+    data["special_activities"] = st.text_input(
+        "משהו מיוחד שצריך לקחת בחשבון? (אופציונלי)",
+        value=data["special_activities"],
+        placeholder="למשל: הופעה, חתונה, ספורט, ציוד צילום..."
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬅ חזור", use_container_width=True):
+            st.session_state.step = 3
+    with col2:
+        if st.button("המשך ➜", use_container_width=True):
+            st.session_state.step = 5
+
+# ----- שלב 5: מזוודה, כביסה, הערות -----
+elif step == 5:
+    st.markdown('<div class="step-title">6. ציוד נסיעה כללי</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">עוד רגע יש לך רשימה מלאה.</div>',
+        unsafe_allow_html=True
+    )
+
+    luggage_options = ["טרולי קטן", "מזוודה בינונית", "מזוודה גדולה", "תרמיל גב לטיולים"]
+    current_index = luggage_options.index(data["luggage"]) if data["luggage"] in luggage_options else 1
+
+    data["luggage"] = st.radio(
+        "מה הכלי העיקרי שבו אתה אורז?",
+        options=luggage_options,
+        index=current_index
+    )
+
+    data["laundry"] = st.checkbox("כנראה שתעשו כביסה במהלך הנסיעה", value=bool(data["laundry"]))
+
+    data["notes"] = st.text_area(
+        "העדפות אישיות / דברים חשובים (אופציונלי)",
+        value=data["notes"],
+        placeholder="לדוגמה: חייב לזכור תרופות, רוצה מינימום ציוד, צריך מקום למתנות..."
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⬅ חזור", use_container_width=True):
+            st.session_state.step = 4
+    with col2:
+        if st.button("צור רשימת ציוד ✅", use_container_width=True):
+            with st.spinner("מחשב עבורך רשימה חכמה..."):
+                st.session_state.packing_text = generate_packing_list(data)
+                st.session_state.step = 6
+
+# ----- שלב 6: תוצאה סופית -----
+else:
+    st.markdown('<div class="step-title">רשימת הציוד שלך מוכנה</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="step-subtitle">אפשר להעתיק ישירות ל״פתקים״ או לשמור כקובץ.</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.session_state.packing_text:
+        st.text_area(
+            "העתק את הטקסט כמו שהוא (Ctrl+C / לחיצה ארוכה והעתק):",
+            value=st.session_state.packing_text,
+            height=380,
+        )
+
+        st.download_button(
+            "📥 הורד כקובץ TXT",
+            data=st.session_state.packing_text,
+            file_name="packing_list.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    else:
+        st.warning("לא נוצרה עדיין רשימת ציוד. חזור אחורה וסיים למלא את השאלון.")
+
+    if st.button("🔁 התחל שאלון חדש", use_container_width=True):
+        reset_all()
