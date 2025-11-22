@@ -1,10 +1,10 @@
 import os
 import streamlit as st
-from openai import OpenAI, RateLimitError, APIError
+from groq import Groq
 
 # ============== הגדרות עמוד ==============
 st.set_page_config(
-    page_title="PackBot AI",
+    page_title="PackBot AI (Groq)",
     page_icon="🧳",
     layout="centered"
 )
@@ -23,43 +23,48 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🧳 PackBot AI")
-st.caption("צ׳אט חכם לבניית רשימת אריזה מותאמת אישית (מופעל ע\"י OpenAI)")
+st.caption("צ'אט חכם לבניית רשימת אריזה – רץ על Groq + Llama 3.1 (חינם)")
 
-# ============== קריאת ה-API KEY ==============
-# המפתח צריך להיות שמור ב-Secrets של Streamlit תחת השם OPENAI_API_KEY
-# או כמשתנה סביבה במערכת ההפעלה.
-api_key = os.getenv("OPENAI_API_KEY", "")
+# ============== מפתח Groq ==============
+# המומלץ: לשים את המפתח כ-SECRET ב-Streamlit בשם GROQ_API_KEY
+# Settings → Secrets →  GROQ_API_KEY = "gsk_...."
+api_key = os.getenv("GROQ_API_KEY", "")
 
 with st.sidebar:
-    st.markdown("### 🔑 מפתח OpenAI")
-    st.caption("מומלץ לשמור את המפתח ב-Secrets של Streamlit בשם OPENAI_API_KEY.\n"
-               "השדה כאן הוא רק לגיבוי (לשימוש מקומי).")
-    manual_key = st.text_input("אם אין SECRET, אפשר להדביק מפתח ידנית:", type="password")
+    st.markdown("### 🔑 Groq API Key")
+    st.caption(
+        "מומלץ לשמור את המפתח ב-Secrets של Streamlit בשם GROQ_API_KEY.\n"
+        "השדה כאן הוא רק לגיבוי (לבדיקות מקומיות)."
+    )
+    manual_key = st.text_input("אם אין SECRET, אפשר להדביק פה את המפתח:", type="password")
     if manual_key.strip():
         api_key = manual_key.strip()
 
 if not api_key:
-    st.error("לא נמצא OpenAI API Key.\n\n"
-             "ב-Streamlit Cloud: הוסף ב-Settings → Secrets:\n\n"
-             'OPENAI_API_KEY = "sk-..."')
+    st.error(
+        "לא נמצא Groq API Key.\n\n"
+        "ב-Streamlit Cloud: היכנס ל-Settings → Secrets והוסף שורה:\n\n"
+        'GROQ_API_KEY = "gsk_XXXXXXXXXXXX"\n\n'
+        "את המפתח יוצרים בחשבון החינמי שלך ב-console.groq.com."
+    )
     st.stop()
 
-client = OpenAI(api_key=api_key)
+# יצירת לקוח Groq
+client = Groq(api_key=api_key)
 
 # ============== ניהול זיכרון השיחה ==============
-# נשמור שיחה בפורמט הפשוט של OpenAI: role + content
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "היי! אני PackBot, מומחה האריזה שלך. ספר לי בקצרה לאן אתה נוסע ומתי."
+            "content": "היי! אני PackBot, מומחה האריזה שלך. ספר בקצרה לאן אתה נוסע ומתי."
         }
     ]
 
-# ============== פונקציה לפניה ל-OpenAI ==============
-def ask_openai():
+# ============== פונקציה ששואלת את המודל ==============
+def ask_groq():
     """
-    בונה את ההיסטוריה ושולח למודל.
+    שולח את כל השיחה למודל Llama 3.1 דרך Groq ומחזיר תשובה.
     """
     messages = [
         {
@@ -67,35 +72,26 @@ def ask_openai():
             "content": (
                 "אתה PackBot, מומחה אריזה חכם. "
                 "אתה מדבר בעברית פשוטה וזורמת, שואל שאלות כדי להבין את הנסיעה "
-                "(יעד, תאריכים, מזג אוויר צפוי, מי נוסע, סוג חופשה ועוד), "
-                "ובסוף עוזר למשתמש לבנות רשימת אריזה מסודרת, עם ביגוד, היגיינה, אלקטרוניקה, מסמכים, "
-                "ודברים מיוחדים לפי מה שסיפר."
+                "(יעד, תאריכים, מזג אוויר משוער, מי נוסע, סוג חופשה, ציוד מיוחד וכו'), "
+                "ובסוף עוזר למשתמש לבנות רשימת אריזה מסודרת ומפורטת. "
+                "תן תשובות ברורות, נוחות לקריאה, עם רשימות נקודתיות כשצריך."
             )
         }
     ]
 
-    # מוסיפים את השיחה שהייתה עד עכשיו
     messages.extend(st.session_state.messages)
 
     try:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.1-8b-instant",  # מודל חינמי ומהיר
             messages=messages,
             temperature=0.6,
         )
         return completion.choices[0].message.content
 
-    except RateLimitError:
-        # זה קורה אם אין קרדיט / עברתם את המגבלה בחשבון OpenAI
-        return (
-            "קיבלתי שגיאת Rate Limit מ-OpenAI.\n"
-            "זה בדרך כלל אומר שאין מספיק קרדיט בחשבון ה-API שלך או שעברת את מגבלת השימוש.\n"
-            "כדאי להיכנס ל-platform.openai.com → Billing ולבדוק את מצב החיובים/קרדיטים."
-        )
-    except APIError as e:
-        return f"שגיאה מה-API של OpenAI: {str(e)}"
     except Exception as e:
-        return f"שגיאה כללית: {str(e)}"
+        # אם יש שגיאה (למשל מפתח לא תקין / חוסר הרשאות) – נחזיר טקסט ברור
+        return f"שגיאה בשיחה עם Groq: {str(e)}"
 
 
 # ============== הצגת היסטוריית השיחה ==============
@@ -106,14 +102,14 @@ for msg in st.session_state.messages:
 user_input = st.chat_input("כתוב כאן את התשובה / השאלה שלך...")
 
 if user_input:
-    # מציגים ומוסיפים את הודעת המשתמש
+    # מציגים ושומרים את הודעת המשתמש
     st.chat_message("user").write(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # שולחים ל-OpenAI
+    # שואלים את Groq
     with st.spinner("אורז מחשבות..."):
-        ai_response = ask_openai()
+        ai_response = ask_groq()
 
-    # מציגים ומוסיפים את תגובת המודל
+    # מציגים ושומרים את תגובת המודל
     st.chat_message("assistant").write(ai_response)
     st.session_state.messages.append({"role": "assistant", "content": ai_response})
