@@ -21,7 +21,6 @@ st.markdown("""
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
-    /* מרכז את התוכן במסכים צרים (מובייל) */
     [data-testid="stAppViewContainer"] > .main {
         max-width: 480px;
         margin: 0 auto;
@@ -70,16 +69,21 @@ st.markdown(
 # =========================
 #   מפתח Groq (חינם)
 # =========================
-# מומלץ ב-Streamlit Cloud:
-# Settings → Secrets → GROQ_API_KEY = "gsk_XXXXX"
-api_key = os.getenv("GROQ_API_KEY", "")
+# עדיפות: מפתח ב-Secrets בשם GROQ_API_KEY
+api_key_env = os.getenv("GROQ_API_KEY", "")
+api_key = api_key_env
 
 with st.sidebar:
     st.markdown("### 🔑 מפתח Groq")
-    st.caption("מומלץ לשמור את המפתח ב-Secrets בשם GROQ_API_KEY.")
-    manual_key = st.text_input("אפשר גם להדביק מפתח ידנית:", type="password")
-    if manual_key.strip():
-        api_key = manual_key.strip()
+    if api_key_env:
+        # אם המפתח כבר ב-Secrets – רק הודעה קטנה, בלי שדה קלט
+        st.success("המפתח נטען אוטומטית מ-Secrets. הכל מוכן ✅")
+    else:
+        # רק אם אין מפתח ב-Secrets – מבקשים אחד ידנית
+        st.caption("מומלץ לשמור את המפתח ב-Secrets בשם GROQ_API_KEY.")
+        manual_key = st.text_input("הדבק כאן מפתח Groq:", type="password")
+        if manual_key.strip():
+            api_key = manual_key.strip()
 
 if not api_key:
     st.error(
@@ -108,7 +112,6 @@ if "messages" not in st.session_state:
 # =========================
 def ask_groq():
     """
-    שולח את כל השיחה למודל Llama 3.1 דרך Groq ומחזיר תשובה.
     שלב 1 – ראיון: שאלה אחת בכל פעם.
     שלב 2 – רשימת ציוד בפורמט טקסט להדבקה בפתקים.
     """
@@ -180,11 +183,9 @@ for msg in st.session_state.messages:
 user_input = st.chat_input("כתוב כאן את התשובה / השאלה הבאה שלך...")
 
 if user_input:
-    # הודעת המשתמש
     st.chat_message("user").write(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # תשובת המודל
     with st.spinner("אורז מחשבות..."):
         ai_response = ask_groq()
 
