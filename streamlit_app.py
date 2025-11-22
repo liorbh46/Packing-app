@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 # =========================
-#   עיצוב מותאם מובייל + RTL
+#   עיצוב מותאם מובייל + RTL, בלי סיידבר
 # =========================
 st.markdown("""
 <style>
@@ -21,6 +21,7 @@ st.markdown("""
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
+    /* מרכז את התוכן במסכים צרים (מובייל) */
     [data-testid="stAppViewContainer"] > .main {
         max-width: 480px;
         margin: 0 auto;
@@ -53,9 +54,12 @@ st.markdown("""
         margin-bottom: 0.8rem;
     }
 
+    /* הסתרה מוחלטת של הסיידבר וכפתור התפריט */
     [data-testid="stSidebar"] {
-        min-width: 220px;
-        max-width: 260px;
+        display: none !important;
+    }
+    [data-testid="collapsedControl"] {
+        display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -67,23 +71,9 @@ st.markdown(
 )
 
 # =========================
-#   מפתח Groq (חינם)
+#   מפתח Groq (מ-Secrets בלבד)
 # =========================
-# עדיפות: מפתח ב-Secrets בשם GROQ_API_KEY
-api_key_env = os.getenv("GROQ_API_KEY", "")
-api_key = api_key_env
-
-with st.sidebar:
-    st.markdown("### 🔑 מפתח Groq")
-    if api_key_env:
-        # אם המפתח כבר ב-Secrets – רק הודעה קטנה, בלי שדה קלט
-        st.success("המפתח נטען אוטומטית מ-Secrets. הכל מוכן ✅")
-    else:
-        # רק אם אין מפתח ב-Secrets – מבקשים אחד ידנית
-        st.caption("מומלץ לשמור את המפתח ב-Secrets בשם GROQ_API_KEY.")
-        manual_key = st.text_input("הדבק כאן מפתח Groq:", type="password")
-        if manual_key.strip():
-            api_key = manual_key.strip()
+api_key = os.getenv("GROQ_API_KEY", "")
 
 if not api_key:
     st.error(
