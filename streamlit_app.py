@@ -23,7 +23,7 @@ st.markdown("""
     }
 
     [data-testid="stAppViewContainer"] > .main {
-        max-width: 480px;
+        max-width: 520px;
         margin: 0 auto;
         padding: 0.75rem 0.75rem 2.75rem 0.75rem;
     }
@@ -39,15 +39,15 @@ st.markdown("""
 
     h1 {
         text-align: center;
-        font-size: 1.6rem;
+        font-size: 1.7rem;
         margin-bottom: 0.1rem;
     }
 
     .sub-caption {
         text-align: center;
-        font-size: 0.85rem;
+        font-size: 0.9rem;
         color: #6b7280;
-        margin-bottom: 0.8rem;
+        margin-bottom: 0.9rem;
     }
 
     [data-testid="stSidebar"] {
@@ -60,6 +60,7 @@ st.markdown("""
     .step-title {
         font-weight: 600;
         margin-bottom: 0.3rem;
+        font-size: 1.05rem;
     }
     .step-subtitle {
         font-size: 0.85rem;
@@ -71,7 +72,7 @@ st.markdown("""
 
 st.title("PackBot AI 🧳")
 st.markdown(
-    '<div class="sub-caption">אשף חכם לבניית רשימת ציוד מותאמת אישית</div>',
+    '<div class="sub-caption">אשף חכם לבניית רשימת ציוד יסודית לכל סוג נסיעה</div>',
     unsafe_allow_html=True
 )
 
@@ -98,11 +99,11 @@ DEFAULT_DATA = {
     "destination": "",
     "trip_name": "",
     "days": 3,
-    "travellers": "",
-    "kids": "",
+    "travellers_type": "",
+    "has_women": False,
     "weather": "",
-    "trip_style": [],
-    "luggage": "",
+    "trip_kinds": [],
+    "luggage": [],
     "laundry": False,
     "special_activities": "",
     "notes": ""
@@ -114,35 +115,69 @@ if "step" not in st.session_state:
 if "form_data" not in st.session_state:
     st.session_state.form_data = DEFAULT_DATA.copy()
 
-if "packing_text" not in st.session_state:
-    st.session_state.packing_text = ""
+if "packing_title" not in st.session_state:
+    st.session_state.packing_title = ""
+
+if "packing_items" not in st.session_state:
+    st.session_state.packing_items = []
+
+if "checked_items" not in st.session_state:
+    st.session_state.checked_items = set()
 
 
 def reset_all():
     st.session_state.step = 0
     st.session_state.form_data = DEFAULT_DATA.copy()
-    st.session_state.packing_text = ""
+    st.session_state.packing_title = ""
+    st.session_state.packing_items = []
+    st.session_state.checked_items = set()
 
 
 # =========================
-#   פונקציה שמדברת עם Groq
+#   קריאה ל-Groq – יצירת רשימת ציוד יסודית
 # =========================
-def generate_packing_list(data: dict) -> str:
+def generate_packing_plan(data: dict):
+    """
+    משתמש ב-Groq (Llama 3.1) כדי לבנות כותרת ורשימת פריטים יסודית.
+    מחזיר: (title: str, items: list[str])
+    """
+
     system_prompt = (
-        "אתה PackBot, מומחה אריזה. "
-        "אתה מקבל נתוני נסיעה מובנים בפורמט JSON, ועל בסיסם אתה יוצר רשימת ציוד מדויקת.\n\n"
-        "פורמט הפלט חשוב מאוד:\n"
-        "1. שורה ראשונה: כותרת, למשל 'רשימת ציוד נסיעה ל<יעד>' או 'רשימת ציוד שהייה'.\n"
-        "2. שורה שנייה: ריקה.\n"
-        "3. משם והלאה: כל פריט בשורה נפרדת, בלי מספרים, בלי מקפים, בלי נקודות.\n"
-        "4. בלי טקסט הסבר לפני או אחרי, בלי אמוג׳י, בלי סוגריים.\n"
-        "5. הרשימה צריכה להיות תמציתית אבל מעשית, מותאמת לנתוני הנסיעה.\n"
-        "6. כתוב הכל בעברית.\n"
+        "אתה PackBot, מומחה אריזה יסודי.\n"
+        "אתה מקבל נתוני נסיעה בפורמט JSON, ועל בסיסם אתה בונה רשימת ציוד יסודית ומלאה, "
+        "כך שהמשתמש יוכל פשוט לסמן וי על מה שארז ולא לשכוח שום דבר חשוב.\n\n"
+        "שים לב במיוחד לשדות הבאים:\n"
+        "- destination: יעד הנסיעה.\n"
+        "- days: מספר לילות מחוץ לבית.\n"
+        "- travellers_type: למשל 'רק אני', 'זוג', 'זוג עם ילדים', 'משפחה / קבוצה'.\n"
+        "- has_women: אם True – יש נשים/נערות ויש לכלול גם ציוד היגיינה נשי (תחבושות, טמפונים, כוס מחזור וכו').\n"
+        "- weather: חם מאוד / נעים / קריר / קר מאוד / שלג.\n"
+        "- trip_kinds: רשימה של סוגי נסיעה, למשל: עיר / שופינג, בטן-גב, טרק/שטח, נסיעת עבודה, אירוע מיוחד, תנועת נוער.\n"
+        "- luggage: רשימה של אמצעי נשיאה (טרולי, מזוודה גדולה, תיק גב וכו').\n"
+        "- laundry: אם True – מתוכננת כביסה.\n"
+        "- special_activities + notes: כל דבר מיוחד שצריך ציוד ייעודי.\n\n"
+        "בנה רשימה יסודית שכוללת:\n"
+        "- ביגוד: כולל תחתונים, גרביים, פיג׳מות, מכנסיים, חולצות, שכבות חמות אם צריך, בגדי ים אם רלוונטי.\n"
+        "- היגיינה וטואלטיקה: כולל מברשת ומשחת שיניים, דאודורנט, שמפו/סבון, קרם גוף/פנים, מסרק, "
+        "גילוח, גזירת ציפורניים, כרטיסיות/קיסמים לשיניים, ערכת טיפוח בסיסית.\n"
+        "- אם has_women = True: הוסף גם ציוד היגייני נשי רלוונטי.\n"
+        "- בריאות: תרופות קבועות, משככי כאבים, פלסטרים, ערכת עזרה ראשונה בסיסית.\n"
+        "- אלקטרוניקה: מטענים לכל המכשירים (טלפון, שעון, אוזניות), מתאם תקע (אם צריך), סוללה ניידת.\n"
+        "- מסמכים וכסף: דרכון, תעודה מזהה, רישיון נהיגה אם רלוונטי, כרטיסי אשראי, כסף מזומן מקומי, ביטוח נסיעות.\n"
+        "- ציוד לטיסה/נסיעה: כרית נסיעות, אוזניות, בקבוק מים רב-פעמי, נשנושים, מסכת עיניים אם מתאים.\n"
+        "- ציוד לפי סוג הנסיעה: לבוש מרשים לאירוע, בגדים נוחים לטרק, ציוד קמפינג בסיסי, ביגוד חם מאוד וכו' – לפי trip_kinds.\n"
+        "- אם יש ילדים/משפחה: ציוד בסיסי לילדים (אם עולה מהרמזים).\n"
+        "- כל מה שמתחייב מהערות המשתמש.\n\n"
+        "פורמט הפלט חייב להיות JSON חוקי **בלבד**, ללא טקסט נוסף:\n"
+        "{\n"
+        "  \"title\": \"כותרת הרשימה בעברית\",\n"
+        "  \"items\": [\"פריט 1\", \"פריט 2\", \"פריט 3\", ...]\n"
+        "}\n\n"
+        "חשוב: החזר רק JSON תקין, ללא הסברים, ללא Markdown, ללא טקסט לפני או אחרי."
     )
 
     user_prompt = (
-        "להלן פרטי הנסיעה בפורמט JSON. "
-        "על בסיסם צור רשימת ציוד בפורמט שצוין:\n\n"
+        "להלן נתוני הנסיעה בפורמט JSON. על בסיסם צור כותרת ורשימת ציוד יסודית בפורמט JSON כפי שהוגדר:\n\n"
         + json.dumps(data, ensure_ascii=False, indent=2)
     )
 
@@ -155,7 +190,28 @@ def generate_packing_list(data: dict) -> str:
         temperature=0.4,
     )
 
-    return completion.choices[0].message.content.strip()
+    content = completion.choices[0].message.content.strip()
+
+    # ניסיון לפרש כ-JSON
+    try:
+        plan = json.loads(content)
+        title = plan.get("title") or f"רשימת ציוד נסיעה ל{data.get('destination','')}".strip()
+        items_raw = plan.get("items", []) or []
+        items = [i.strip() for i in items_raw if isinstance(i, str) and i.strip()]
+        if not items:
+            raise ValueError("No items in JSON.")
+        return title, items
+    except Exception:
+        # נפילה – fallback: מפרש כטקסט פשוט שורה-שורה
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            return "רשימת ציוד נסיעה", []
+        title = lines[0]
+        # מדלגים על שורה ריקה אחת אם יש
+        rest = lines[1:]
+        if rest and rest[0] == "":
+            rest = rest[1:]
+        return title, rest
 
 
 # =========================
@@ -164,36 +220,48 @@ def generate_packing_list(data: dict) -> str:
 data = st.session_state.form_data
 step = st.session_state.step
 
-st.progress((step) / 6.0 if step <= 6 else 1.0)
+TOTAL_STEPS = 6
+st.progress(min(step, TOTAL_STEPS) / float(TOTAL_STEPS))
 
-# ----- שלב 0: יעד ושם נסיעה -----
+# ----- שלב 0: יעד וכותרת -----
 if step == 0:
-    st.markdown('<div class="step-title">1. היעד והכותרת</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">1. מה היעד?</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">נתחיל בלעשות סדר: לאן הנסיעה ואיך תרצה לקרוא לה ברשימה?</div>',
+        '<div class="step-subtitle">לאן הנסיעה ואיך תרצה לקרוא לרשימה שתופיע בפתקים?</div>',
         unsafe_allow_html=True
     )
 
-    data["destination"] = st.text_input("לאן הנסיעה?", value=data["destination"], placeholder="לונדון, אילת, ארה״ב...")
+    data["destination"] = st.text_input(
+        "לאן הנסיעה?",
+        value=data["destination"],
+        placeholder="לונדון, אילת, ניו-יורק, טיול שנתי בצפון..."
+    )
 
     data["trip_name"] = st.text_input(
         "כותרת לרשימה (אופציונלי)",
         value=data["trip_name"],
-        placeholder="רשימת ציוד שהייה, רשימת ציוד לטיסה לניו-יורק..."
+        placeholder="רשימת ציוד שהייה, רשימת ציוד לטיול שנתי..."
     )
 
-    if st.button("המשך ➜", use_container_width=True, disabled=(data["destination"].strip() == "")):
+    disabled_next = data["destination"].strip() == ""
+
+    if st.button("המשך ➜", use_container_width=True, disabled=disabled_next):
         st.session_state.step = 1
 
 # ----- שלב 1: משך הנסיעה -----
 elif step == 1:
-    st.markdown('<div class="step-title">2. כמה זמן אתם נוסעים?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">2. כמה זמן אתם מחוץ לבית?</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">המשך השהייה משפיע על כמות הבגדים והציוד.</div>',
+        '<div class="step-subtitle">המשך הנסיעה משפיע ישירות על כמות הבגדים והציוד.</div>',
         unsafe_allow_html=True
     )
 
-    data["days"] = st.number_input("מספר לילות מחוץ לבית", min_value=1, max_value=60, value=int(data["days"] or 3))
+    data["days"] = st.number_input(
+        "מספר לילות מחוץ לבית",
+        min_value=1,
+        max_value=90,
+        value=int(data["days"] or 3)
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -203,30 +271,30 @@ elif step == 1:
         if st.button("המשך ➜", use_container_width=True):
             st.session_state.step = 2
 
-# ----- שלב 2: מי נוסע -----
+# ----- שלב 2: מי נוסע + האם יש נשים -----
 elif step == 2:
-    st.markdown('<div class="step-title">3. מי נוסע?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">3. מי יוצא לדרך?</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">כך נדע להתאים כמויות וציוד מיוחד.</div>',
+        '<div class="step-subtitle">ככה נדע להתאים כמויות וציוד מיוחד.</div>',
         unsafe_allow_html=True
     )
 
-    data["travellers"] = st.radio(
-        "בחר אפשרות אחת:",
-        options=["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"],
-        index=["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"].index(data["travellers"])
-        if data["travellers"] in ["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"] else 0,
+    traveller_options = ["רק אני", "זוג", "זוג עם ילדים", "משפחה / קבוצה"]
+    current_idx = traveller_options.index(data["travellers_type"]) if data["travellers_type"] in traveller_options else 0
+
+    data["travellers_type"] = st.radio(
+        "בחר תיאור שמתאים לכם:",
+        options=traveller_options,
+        index=current_idx
     )
 
-    if data["travellers"] in ["זוג עם ילדים", "משפחה / קבוצה"]:
-        data["kids"] = st.radio(
-            "ילדים:",
-            options=["בלי ילדים", "עם ילדים קטנים", "עם ילדים גדולים"],
-            index=["בלי ילדים", "עם ילדים קטנים", "עם ילדים גדולים"].index(data["kids"])
-            if data["kids"] in ["בלי ילדים", "עם ילדים קטנים", "עם ילדים גדולים"] else 1,
-        )
-    else:
-        data["kids"] = "בלי ילדים"
+    # שאלה על נשים/נערות לציוד היגיינה נשי
+    has_women_option = st.radio(
+        "האם יש נשים או נערות שצריך לכלול עבורן ציוד היגיינה נשי?",
+        options=["לא", "כן"],
+        index=1 if data["has_women"] else 0,
+    )
+    data["has_women"] = (has_women_option == "כן")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -236,21 +304,38 @@ elif step == 2:
         if st.button("המשך ➜", use_container_width=True):
             st.session_state.step = 3
 
-# ----- שלב 3: מזג אוויר -----
+# ----- שלב 3: מזג אוויר + סוגי נסיעה -----
 elif step == 3:
-    st.markdown('<div class="step-title">4. מזג האוויר המשוער</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">4. איך תיראה הנסיעה?</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">הערכה גסה מספיקה – רק כדי להבין איזה ביגוד צריך.</div>',
+        '<div class="step-subtitle">מזג האוויר ואופי הנסיעה משפיעים מאוד על הציוד.</div>',
         unsafe_allow_html=True
     )
 
-    options = ["חם מאוד", "נעים", "קריר", "קר מאוד / שלג"]
-    current_index = options.index(data["weather"]) if data["weather"] in options else 1
+    weather_options = ["חם מאוד", "נעים", "קריר", "קר מאוד / שלג"]
+    w_idx = weather_options.index(data["weather"]) if data["weather"] in weather_options else 1
 
     data["weather"] = st.radio(
-        "איך כנראה יהיה שם?",
-        options=options,
-        index=current_index
+        "איך בערך יהיה מזג האוויר?",
+        options=weather_options,
+        index=w_idx
+    )
+
+    st.markdown("**איזה סוג נסיעה זו?** (אפשר לבחור יותר מאחד)")
+
+    trip_kind_options = [
+        "עיר / שופינג",
+        "בטן-גב / ים / בריכה",
+        "טרק / שטח / קמפינג",
+        "נסיעת עבודה / כנס",
+        "אירוע מיוחד (חתונה, הופעה, בר/בת מצווה)",
+        "תנועת נוער / טיול שנתי"
+    ]
+
+    data["trip_kinds"] = st.multiselect(
+        "בחר סוגי נסיעה רלוונטיים:",
+        options=trip_kind_options,
+        default=data["trip_kinds"] or []
     )
 
     col1, col2 = st.columns(2)
@@ -261,33 +346,32 @@ elif step == 3:
         if st.button("המשך ➜", use_container_width=True):
             st.session_state.step = 4
 
-# ----- שלב 4: אופי הטיול -----
+# ----- שלב 4: מזוודות / תיקים (עם checkbox) -----
 elif step == 4:
-    st.markdown('<div class="step-title">5. סוג החופשה</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">5. במה אתה אורז?</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">אפשר לבחור יותר מאפשרות אחת.</div>',
+        '<div class="step-subtitle">אפשר לבחור כמה אפשרויות – טרולי + תיק גב, מזוודה גדולה ועוד.</div>',
         unsafe_allow_html=True
     )
 
-    styles = [
-        "עיר / שופינג",
-        "בטן-גב / ים / בריכה",
-        "טרק / טבע",
-        "נסיעת עבודה",
-        "מסיבה / אירוע מיוחד"
+    luggage_options = [
+        "טרולי (מזוודה קטנה)",
+        "מזוודה בינונית",
+        "מזוודה גדולה",
+        "תיק גב",
+        "תיק צד / תיק כתף",
+        "תיק רחצה תלוי / מתקפל"
     ]
 
-    data["trip_style"] = st.multiselect(
-        "מה הכי מתאים?",
-        options=styles,
-        default=data["trip_style"] or []
-    )
+    selected_luggage = []
+    for opt in luggage_options:
+        key = f"luggage_{opt}"
+        default_checked = opt in data["luggage"]
+        checked = st.checkbox(opt, value=default_checked, key=key)
+        if checked:
+            selected_luggage.append(opt)
 
-    data["special_activities"] = st.text_input(
-        "משהו מיוחד שצריך לקחת בחשבון? (אופציונלי)",
-        value=data["special_activities"],
-        placeholder="למשל: הופעה, חתונה, ספורט, ציוד צילום..."
-    )
+    data["luggage"] = selected_luggage
 
     col1, col2 = st.columns(2)
     with col1:
@@ -297,29 +381,29 @@ elif step == 4:
         if st.button("המשך ➜", use_container_width=True):
             st.session_state.step = 5
 
-# ----- שלב 5: מזוודה, כביסה, הערות -----
+# ----- שלב 5: כביסה, אקטיביטיז והערות -----
 elif step == 5:
-    st.markdown('<div class="step-title">6. ציוד נסיעה כללי</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">6. עוד כמה פרטים חשובים</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">עוד רגע יש לך רשימה מלאה.</div>',
+        '<div class="step-subtitle">מכאן PackBot כבר יוכל להרכיב עבורך רשימת ציוד מלאה.</div>',
         unsafe_allow_html=True
     )
 
-    luggage_options = ["טרולי קטן", "מזוודה בינונית", "מזוודה גדולה", "תרמיל גב לטיולים"]
-    current_index = luggage_options.index(data["luggage"]) if data["luggage"] in luggage_options else 1
-
-    data["luggage"] = st.radio(
-        "מה הכלי העיקרי שבו אתה אורז?",
-        options=luggage_options,
-        index=current_index
+    data["laundry"] = st.checkbox(
+        "כנראה שתעשו כביסה במהלך הנסיעה",
+        value=bool(data["laundry"])
     )
 
-    data["laundry"] = st.checkbox("כנראה שתעשו כביסה במהלך הנסיעה", value=bool(data["laundry"]))
+    data["special_activities"] = st.text_input(
+        "משהו מיוחד שצריך ציוד בשבילו? (אופציונלי)",
+        value=data["special_activities"],
+        placeholder="חתונה, מסיבה, טרק לילה, פעילות מים, ספורט, ציוד צילום..."
+    )
 
     data["notes"] = st.text_area(
-        "העדפות אישיות / דברים חשובים (אופציונלי)",
+        "העדפות אישיות / דברים שחייבים לזכור (אופציונלי)",
         value=data["notes"],
-        placeholder="לדוגמה: חייב לזכור תרופות, רוצה מינימום ציוד, צריך מקום למתנות..."
+        placeholder="לדוגמה: חייב לזכור תרופות מסוימות, רוצה לארוז כמה שפחות, צריך מקום למתנות..."
     )
 
     col1, col2 = st.columns(2)
@@ -328,34 +412,69 @@ elif step == 5:
             st.session_state.step = 4
     with col2:
         if st.button("צור רשימת ציוד ✅", use_container_width=True):
-            with st.spinner("מחשב עבורך רשימה חכמה..."):
-                st.session_state.packing_text = generate_packing_list(data)
+            with st.spinner("PackBot מרכיב עבורך רשימה יסודית..."):
+                title, items = generate_packing_plan(data)
+                st.session_state.packing_title = title or "רשימת ציוד נסיעה"
+                st.session_state.packing_items = items
+                st.session_state.checked_items = set()
                 st.session_state.step = 6
 
-# ----- שלב 6: תוצאה סופית -----
+# ----- שלב 6: רשימת ציוד סופית + checkbox לכל פריט -----
 else:
-    st.markdown('<div class="step-title">רשימת הציוד שלך מוכנה</div>', unsafe_allow_html=True)
+    st.markdown('<div class="step-title">רשימת הציוד שלך מוכנה ✔</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="step-subtitle">אפשר להעתיק ישירות ל״פתקים״ או לשמור כקובץ.</div>',
+        '<div class="step-subtitle">סמן וי על מה שכבר ארזת, או העתק ל"פתקים".</div>',
         unsafe_allow_html=True
     )
 
-    if st.session_state.packing_text:
+    title = st.session_state.packing_title
+    items = st.session_state.packing_items
+
+    if not items:
+        st.warning("לא נמצאה רשימת ציוד. חזור אחורה ונסה שוב.")
+    else:
+        st.markdown(f"**{title}**")
+
+        # צ'קבוקסים לכל פריט
+        total = len(items)
+        done_count = 0
+
+        new_checked_set = set(st.session_state.checked_items)
+
+        for idx, item in enumerate(items):
+            key = f"item_{idx}"
+            checked = item in st.session_state.checked_items
+            new_val = st.checkbox(item, value=checked, key=key)
+            if new_val:
+                new_checked_set.add(item)
+            else:
+                new_checked_set.discard(item)
+
+        st.session_state.checked_items = new_checked_set
+        done_count = len(new_checked_set)
+
+        st.progress(done_count / float(total))
+        st.caption(f"סימנת {done_count} מתוך {total} פריטים.")
+
+        # טקסט נקי להעתקה ל"פתקים"
+        text_lines = [title, ""]
+        text_lines.extend(items)
+        notes_text = "\n".join(text_lines)
+
+        st.markdown("**להעתקה ל״פתקים״:**")
         st.text_area(
-            "העתק את הטקסט כמו שהוא (Ctrl+C / לחיצה ארוכה והעתק):",
-            value=st.session_state.packing_text,
-            height=380,
+            "סמן הכל והעתק (Ctrl+C / לחיצה ארוכה):",
+            value=notes_text,
+            height=260,
         )
 
         st.download_button(
             "📥 הורד כקובץ TXT",
-            data=st.session_state.packing_text,
+            data=notes_text,
             file_name="packing_list.txt",
             mime="text/plain",
             use_container_width=True,
         )
-    else:
-        st.warning("לא נוצרה עדיין רשימת ציוד. חזור אחורה וסיים למלא את השאלון.")
 
     if st.button("🔁 התחל שאלון חדש", use_container_width=True):
         reset_all()
